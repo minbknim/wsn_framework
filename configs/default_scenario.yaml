@@ -1,0 +1,43 @@
+# WSN Framework — Default Scenario Configuration
+# 모든 파라미터를 여기서 한 번에 관리합니다.
+# 동일 파일을 공유하면 어떤 프로토콜이든 동일 환경에서 실행됩니다.
+
+topology:
+  area_width:   100.0       # 시뮬레이션 영역 가로 (m)
+  area_height:  100.0       # 시뮬레이션 영역 세로 (m)
+  num_nodes:    100         # 센서 노드 수
+  deployment:   "random"    # random | grid | uniform
+  bs_position:  [50.0, 50.0]  # Base Station 위치 (x, y)
+  mobility:     "static"    # static | mobile
+  mobile_speed: 0.0
+
+energy:
+  initial_energy: 0.5       # 초기 에너지 (J)
+  e_elec:   0.000000050     # 회로 에너지 50 nJ/bit
+  e_amp_fs: 0.000000000100  # Free-space 증폭 100 pJ/bit/m²
+  e_amp_mp: 0.0000000000000013  # Multipath 0.0013 pJ/bit/m⁴
+  e_agg:    0.000000005     # 데이터 집계 5 nJ/bit
+  heterogeneous:  false
+  het_levels:     2
+  het_ratios:     [1.0, 2.0]
+  het_fractions:  [0.8, 0.2]
+
+comm:
+  tx_range:         100.0   # 최대 전송 거리 (m)
+  packet_size:      4000    # 데이터 패킷 크기 (bits)
+  ctrl_packet_size: 200     # 제어 패킷 크기 (bits)
+  channel_model:    "first_order"
+  mac_protocol:     "TDMA"
+
+protocol:
+  name:     "LEACH"
+  ch_ratio: 0.05            # Cluster Head 비율
+  routing:  "single_hop"
+  params:   {}
+
+simulation:
+  rounds:      2000         # 총 라운드 수
+  repetitions: 100          # Monte Carlo 반복 횟수
+  seed:        42           # 기준 랜덤 시드
+  parallel:    true
+  n_jobs:      -1           # -1 = 모든 CPU 코어 사용

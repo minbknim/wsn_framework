@@ -1,0 +1,40 @@
+# Heterogeneous WSN Scenario — SEP 프로토콜 최적화 환경
+topology:
+  area_width:   100.0
+  area_height:  100.0
+  num_nodes:    100
+  deployment:   "random"
+  bs_position:  [50.0, 50.0]
+  mobility:     "static"
+  mobile_speed: 0.0
+
+energy:
+  initial_energy: 0.5
+  e_elec:   0.000000050
+  e_amp_fs: 0.000000000100
+  e_amp_mp: 0.0000000000000013
+  e_agg:    0.000000005
+  heterogeneous:  true
+  het_levels:     2
+  het_ratios:     [1.0, 3.0]    # 일반 노드 0.5J, 고에너지 노드 1.5J
+  het_fractions:  [0.8, 0.2]    # 80% 일반 / 20% 고에너지
+
+comm:
+  tx_range:         100.0
+  packet_size:      4000
+  ctrl_packet_size: 200
+  channel_model:    "first_order"
+  mac_protocol:     "TDMA"
+
+protocol:
+  name:     "SEP"
+  ch_ratio: 0.05
+  routing:  "single_hop"
+  params:   {}
+
+simulation:
+  rounds:      3000
+  repetitions: 50
+  seed:        42
+  parallel:    true
+  n_jobs:      -1

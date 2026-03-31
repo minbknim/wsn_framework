@@ -1,0 +1,67 @@
+{
+  "LEACH": {
+    "fnd_mean": 185.5,
+    "fnd_std": 251.69455695346295,
+    "hnd_mean": 2000.0,
+    "hnd_std": 0.0,
+    "lnd_mean": 2000.0,
+    "pdr_mean": 0.04815825,
+    "pdr_std": 0.0005184141081220694,
+    "e_consumed_mean": 21.574729782290134,
+    "e_balance_var": 0.00946978163643672,
+    "avg_ch_count": 4.815825,
+    "repetitions": 20
+  },
+  "HEED": {
+    "fnd_mean": 152.1,
+    "fnd_std": 18.595429545993284,
+    "hnd_mean": 301.7,
+    "hnd_std": 16.712570119523807,
+    "lnd_mean": 362.3,
+    "pdr_mean": 0.00410525,
+    "pdr_std": 0.0002059215566666103,
+    "e_consumed_mean": 50.0,
+    "e_balance_var": 0.0,
+    "avg_ch_count": 2.2666095228219216,
+    "repetitions": 20
+  },
+  "PEGASIS": {
+    "fnd_mean": 215.9,
+    "fnd_std": 73.63348423102087,
+    "hnd_mean": 1130.5,
+    "hnd_std": 10.156278846112881,
+    "lnd_mean": 1519.35,
+    "pdr_mean": 0.007576000000000001,
+    "pdr_std": 0.0008543866220862777,
+    "e_consumed_mean": 50.0,
+    "e_balance_var": 0.0,
+    "avg_ch_count": 1.0,
+    "repetitions": 20
+  },
+  "SEP": {
+    "fnd_mean": 191.6,
+    "fnd_std": 22.55304857441672,
+    "hnd_mean": 393.55,
+    "hnd_std": 27.343143564703748,
+    "lnd_mean": 2000.0,
+    "pdr_mean": 0.008200750000000001,
+    "pdr_std": 0.0003681551133693515,
+    "e_consumed_mean": 49.82492066619287,
+    "e_balance_var": 4.339802472601019e-05,
+    "avg_ch_count": 0.8200749999999999,
+    "repetitions": 20
+  },
+  "TEEN": {
+    "fnd_mean": 194.65,
+    "fnd_std": 272.4783064759468,
+    "hnd_mean": 2000.0,
+    "hnd_std": 0.0,
+    "lnd_mean": 2000.0,
+    "pdr_mean": 0.048163,
+    "pdr_std": 0.0004395747945458199,
+    "e_consumed_mean": 21.609956983053973,
+    "e_balance_var": 0.009514383772446533,
+    "avg_ch_count": 4.8163,
+    "repetitions": 20
+  }
+}

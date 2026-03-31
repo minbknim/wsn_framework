@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  wsn:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: wsn-framework:latest
+    container_name: wsn_sim
+    volumes:
+      - ../results:/workspace/results      # 결과 파일 호스트 공유
+      - ../configs:/workspace/configs      # 사용자 설정 공유
+      - ../logs:/workspace/logs
+    environment:
+      - NS3_PATH=/opt/ns3
+      - WSN_LOG_LEVEL=INFO
+      - WSN_RESULTS_DIR=/workspace/results
+    command: ["--help"]
+
+  # 대화형 쉘 진입용
+  wsn-shell:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: wsn-framework:latest
+    container_name: wsn_shell
+    volumes:
+      - ../results:/workspace/results
+      - ../configs:/workspace/configs
+    entrypoint: ["/bin/bash"]
+    stdin_open: true
+    tty: true
