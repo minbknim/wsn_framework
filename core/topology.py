@@ -136,113 +136,114 @@ class TopologyManager:
         output_path: str | Path,
         title:       str   = "WSN Topology",
         tx_range:    float = 100.0,
-        show_links:  bool  = True,
+        show_links:  bool  = True,   # 라운드 프레임에서는 False 권장
         ch_ids:      Optional[List[int]] = None,
-        cluster_map: Optional[dict]      = None,  # node_id → ch_id
+        cluster_map: Optional[dict]      = None,
         round_num:   Optional[int]       = None,
-        dpi:         int   = 150,
+        dpi:         int   = 100,
     ) -> Path:
-        """Generate and save topology figure."""
-        fig, ax = plt.subplots(figsize=(8, 8))
+        """Generate and save topology figure (최적화 버전)."""
+        fig, ax = plt.subplots(figsize=(7, 7))
         W, H = self.cfg.area_width, self.cfg.area_height
         ax.set_xlim(-5, W + 5)
         ax.set_ylim(-5, H + 5)
         ax.set_aspect("equal")
         ax.set_facecolor("#f8f9fa")
         ax.grid(True, alpha=0.25, linewidth=0.5)
-        ax.set_xlabel("X (m)", fontsize=11)
-        ax.set_ylabel("Y (m)", fontsize=11)
+        ax.set_xlabel("X (m)", fontsize=10)
+        ax.set_ylabel("Y (m)", fontsize=10)
 
-        # ── Draw communication links ──────────────────────────────────────────
-        if show_links:
-            for i, u in enumerate(self.nodes):
-                if not u.alive:
-                    continue
-                for v in self.nodes[i + 1:]:
-                    if not v.alive:
-                        continue
+        alive_nodes = [n for n in self.nodes if n.alive]
+        dead_nodes  = [n for n in self.nodes if not n.alive]
+        ch_set      = set(ch_ids) if ch_ids else set()
+
+        # ── 클러스터 멤버-CH 연결선 (라운드 프레임용) ─────────────────────────
+        if cluster_map and ch_set and not show_links:
+            node_map = {n.node_id: n for n in alive_nodes}
+            for nid, cid in cluster_map.items():
+                if nid != cid and nid in node_map and cid in node_map:
+                    n_ = node_map[nid]
+                    c_ = node_map[cid]
+                    ax.plot([n_.x, c_.x], [n_.y, c_.y],
+                            color="#aaaaaa", linewidth=0.5, alpha=0.4, zorder=1)
+
+        # ── 전통적인 링크 (초기 토폴로지용) ──────────────────────────────────
+        elif show_links and len(alive_nodes) <= 60:
+            # N<=60일 때만 O(N²) 링크 그리기
+            for i, u in enumerate(alive_nodes):
+                for v in alive_nodes[i+1:]:
                     if u.distance_to(v) <= tx_range:
                         ax.plot([u.x, v.x], [u.y, v.y],
-                                color="#cccccc", linewidth=0.4, alpha=0.5, zorder=1)
+                                color="#cccccc", linewidth=0.3, alpha=0.4, zorder=1)
 
-        # ── Cluster colouring ─────────────────────────────────────────────────
+        # ── 클러스터 색상 배경 (ch_ids 있을 때만) ────────────────────────────
         cluster_colors: dict = {}
-        if cluster_map and ch_ids:
-            palette = plt.cm.Set2(np.linspace(0, 1, max(len(ch_ids), 1)))
-            for idx, ch in enumerate(ch_ids):
-                cluster_colors[ch] = palette[idx]
-            for node in self.nodes:
-                if not node.alive:
+        if ch_set and cluster_map:
+            palette = plt.cm.Set2(np.linspace(0, 1, max(len(ch_set), 1)))
+            for idx, ch in enumerate(sorted(ch_set)):
+                cluster_colors[ch] = palette[idx % len(palette)]
+            # 멤버 노드 배경색
+            mem_xs, mem_ys, mem_cols = [], [], []
+            for node in alive_nodes:
+                if node.node_id in ch_set:
                     continue
                 ch = cluster_map.get(node.node_id)
-                if ch is not None and ch in cluster_colors:
-                    ax.scatter(node.x, node.y, s=40,
-                               color=cluster_colors[ch], alpha=0.6,
-                               edgecolors="none", zorder=3)
+                if ch in cluster_colors:
+                    mem_xs.append(node.x); mem_ys.append(node.y)
+                    mem_cols.append(cluster_colors[ch])
+            if mem_xs:
+                ax.scatter(mem_xs, mem_ys, s=50, c=mem_cols, alpha=0.35,
+                           edgecolors="none", zorder=2)
 
-        # ── Sensor nodes ──────────────────────────────────────────────────────
-        alive   = [n for n in self.nodes if n.alive]
-        dead    = [n for n in self.nodes if not n.alive]
-        norm    = plt.Normalize(
-            vmin=0, vmax=self.energy_cfg.initial_energy
-        )
-        cmap    = plt.cm.RdYlGn
+        # ── 생존 노드 (에너지 컬러맵) ─────────────────────────────────────────
+        if alive_nodes:
+            energies = [n.energy for n in alive_nodes]
+            norm = plt.Normalize(vmin=0, vmax=self.energy_cfg.initial_energy)
+            sc = ax.scatter([n.x for n in alive_nodes],
+                            [n.y for n in alive_nodes],
+                            c=energies, cmap="RdYlGn", norm=norm,
+                            s=45, edgecolors="#444", linewidths=0.4, zorder=4,
+                            label=f"Alive ({len(alive_nodes)})")
+            plt.colorbar(sc, ax=ax, label="Residual E (J)", fraction=0.03, pad=0.02)
 
-        if alive:
-            energies = [n.energy for n in alive]
-            xs_a = [n.x for n in alive]
-            ys_a = [n.y for n in alive]
-            sc = ax.scatter(xs_a, ys_a, c=energies, cmap=cmap, norm=norm,
-                            s=50, edgecolors="#555", linewidths=0.5, zorder=4,
-                            label=f"Alive ({len(alive)})")
-            plt.colorbar(sc, ax=ax, label="Residual energy (J)", fraction=0.03)
+        # ── 사망 노드 ─────────────────────────────────────────────────────────
+        if dead_nodes:
+            ax.scatter([n.x for n in dead_nodes], [n.y for n in dead_nodes],
+                       marker="x", color="#cc3333", s=35, linewidths=1.0,
+                       zorder=3, label=f"Dead ({len(dead_nodes)})")
 
-        if dead:
-            ax.scatter([n.x for n in dead], [n.y for n in dead],
-                       marker="x", color="#cc3333", s=40, linewidths=1.2,
-                       zorder=5, label=f"Dead ({len(dead)})")
+        # ── CH 표시 (★) ──────────────────────────────────────────────────────
+        if ch_set:
+            ch_alive = [n for n in alive_nodes if n.node_id in ch_set]
+            if ch_alive:
+                for ch in ch_alive:
+                    col = cluster_colors.get(ch.node_id, "#1a1aff")
+                    ax.scatter(ch.x, ch.y, marker="*", color=col, s=200,
+                               edgecolors="white", linewidths=0.6, zorder=6)
+                # 대표 레전드 항목 하나만
+                ax.scatter([], [], marker="*", color="#1a1aff", s=200,
+                           label=f"CH ({len(ch_alive)})")
 
-        # ── Cluster heads ─────────────────────────────────────────────────────
-        if ch_ids:
-            ch_nodes = [n for n in self.nodes if n.node_id in ch_ids and n.alive]
-            if ch_nodes:
-                ax.scatter([n.x for n in ch_nodes], [n.y for n in ch_nodes],
-                           marker="*", color="#1a1aff", s=220, zorder=6,
-                           edgecolors="white", linewidths=0.8,
-                           label=f"Cluster Head ({len(ch_nodes)})")
-                # TX range circles
-                for ch in ch_nodes:
-                    circle = plt.Circle(
-                        (ch.x, ch.y), tx_range,
-                        color=cluster_colors.get(ch.node_id, "#1a1aff"),
-                        fill=False, linestyle="--", linewidth=0.8, alpha=0.45
-                    )
-                    ax.add_patch(circle)
-
-        # ── Base station ──────────────────────────────────────────────────────
+        # ── BS ────────────────────────────────────────────────────────────────
         ax.scatter(self.bs.x, self.bs.y, marker="^", color="#000000",
-                   s=260, zorder=7, label="Base Station", edgecolors="white",
-                   linewidths=1.0)
+                   s=220, zorder=7, label="BS", edgecolors="white", linewidths=0.8)
         ax.annotate("BS", (self.bs.x, self.bs.y),
-                    textcoords="offset points", xytext=(8, 6),
-                    fontsize=9, fontweight="bold", color="#000000")
+                    textcoords="offset points", xytext=(6, 5), fontsize=8,
+                    fontweight="bold", color="#000000")
 
-        # ── Title / legend ────────────────────────────────────────────────────
-        t = title
-        if round_num is not None:
-            t += f"  [Round {round_num}]"
-        ax.set_title(t, fontsize=13, fontweight="bold", pad=12)
-        ax.legend(loc="upper right", fontsize=8, framealpha=0.85)
+        # ── 제목 / 범례 ───────────────────────────────────────────────────────
+        t_str = title if round_num is None else f"{title}  [Round {round_num}]"
+        ax.set_title(t_str, fontsize=11, fontweight="bold", pad=8)
+        ax.legend(loc="upper right", fontsize=7, framealpha=0.85,
+                  markerscale=0.8)
 
-        # ── Stats annotation ──────────────────────────────────────────────────
+        # ── 통계 텍스트 ───────────────────────────────────────────────────────
         total_e = sum(n.energy for n in self.nodes)
-        stats_txt = (
-            f"Nodes: {len(alive)}/{len(self.nodes)} alive\n"
-            f"Total residual E: {total_e:.4f} J\n"
-            f"Area: {W}×{H} m²  |  Seed: {self.seed}"
-        )
-        ax.text(0.01, 0.01, stats_txt, transform=ax.transAxes,
-                fontsize=7.5, verticalalignment="bottom",
+        ax.text(0.01, 0.01,
+                f"Alive: {len(alive_nodes)}/{len(self.nodes)}\n"
+                f"ResidualE: {total_e:.3f}J",
+                transform=ax.transAxes, fontsize=7.5,
+                verticalalignment="bottom",
                 bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.7))
 
         out = Path(output_path)
@@ -251,6 +252,7 @@ class TopologyManager:
         plt.close(fig)
         return out
 
+    # ── NS3 helpers ───────────────────────────────────────────────────────────
     # ── NS3 helpers ───────────────────────────────────────────────────────────
 
     def to_ns3_positions_cpp(self) -> str:

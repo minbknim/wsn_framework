@@ -110,3 +110,22 @@ class Comparator:
         if col not in df.columns:
             raise ValueError(f"Column '{col}' not in summary. Available: {list(df.columns)}")
         return df.sort_values(col, ascending=ascending).reset_index(drop=True)
+
+
+    @staticmethod
+    def ch_series(results) -> "pd.DataFrame | None":
+        """라운드별 CH 수 평균/표준편차."""
+        if not results:
+            return None
+        max_rnd = max(s.round_num for r in results for s in r.round_stats)
+        mat = np.zeros((len(results), max_rnd))
+        for ri, r in enumerate(results):
+            for s in r.round_stats:
+                if 1 <= s.round_num <= max_rnd:
+                    mat[ri, s.round_num - 1] = s.ch_count
+        rounds = np.arange(1, max_rnd + 1)
+        return pd.DataFrame({
+            "round":   rounds,
+            "ch_mean": mat.mean(axis=0),
+            "ch_std":  mat.std(axis=0),
+        })

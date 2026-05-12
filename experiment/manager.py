@@ -1,139 +1,294 @@
-"""ExperimentManager — runs, aggregates, and compares experiments."""
+"""ExperimentManager — 병렬 Monte Carlo 지원, 폴더 구조 자동화."""
 from __future__ import annotations
-import copy, logging, sys
+import copy, csv, logging, os, sys, tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import asdict
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional
 
 import numpy as np
-
-from wsn_framework.core.config import ScenarioConfig
-from wsn_framework.core.topology import TopologyManager
-from wsn_framework.core.energy import EnergyModel
-from wsn_framework.core.result import ExperimentResult, AggregatedResult
-from wsn_framework.protocols.builtin import get_protocol
+import yaml
 
 log = logging.getLogger(__name__)
 
 
-def _progress(label: str, done: int, total: int) -> None:
+def _bar(label: str, done: int, total: int) -> None:
     pct = int(done / total * 40)
     bar = "█" * pct + "░" * (40 - pct)
-    sys.stdout.write(f"\r  {label:10s} [{bar}] {done}/{total}")
+    sys.stdout.write(f"\r  {label:12s} [{bar}] {done}/{total}")
     sys.stdout.flush()
     if done == total:
         sys.stdout.write("\n")
 
 
+def _safe_name(name: str) -> str:
+    return name.replace("+", "plus").replace("-", "_")
+
+
+def _proto_dir(run_dir: Path, proto: str) -> Path:
+    d = run_dir / _safe_name(proto)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+# ── 프로세스 풀 워커 ─────────────────────────────────────────────────────────
+def _worker(args: tuple):
+    (cfg_yaml, proto_name, seed, rep_id,
+     run_until_dead, topo_frames_path, topo_save_interval,
+     save_initial, initial_topo_path) = args
+
+    # 자식 프로세스 경로 설정
+    root = str(Path(__file__).resolve().parent.parent.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+    from wsn_framework.core.config import ScenarioConfig
+    from wsn_framework.core.topology import TopologyManager
+    from wsn_framework.core.energy import EnergyModel
+    from wsn_framework.protocols import get_protocol
+
+    cfg = ScenarioConfig.from_yaml(cfg_yaml)
+    cfg.simulation.seed = seed
+
+    topo = TopologyManager(cfg.topology, cfg.energy, seed=seed)
+    topo.deploy()
+
+    if save_initial and initial_topo_path:
+        try:
+            topo.visualize(Path(initial_topo_path),
+                           title=f"Initial Topology — {proto_name}")
+        except Exception:
+            pass
+
+    topo_dir = Path(topo_frames_path) if topo_frames_path else None
+    em    = EnergyModel(cfg.energy)
+    proto = get_protocol(proto_name)(cfg.protocol, em, cfg.comm)
+    return proto.run(
+        topo, cfg.simulation.rounds, seed, rep_id,
+        run_until_dead=run_until_dead,
+        topo_save_dir=topo_dir,
+        topo_save_interval=topo_save_interval,
+    )
+
+
 class ExperimentManager:
-    def __init__(self, base_config: ScenarioConfig, output_dir: str = "results"):
-        self.base_cfg   = base_config
-        self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        base_config,
+        output_dir: str = "results",
+        run_timestamp: Optional[str] = None,
+        max_workers: Optional[int] = None,
+    ):
+        from wsn_framework.core.config import ScenarioConfig
+        self.base_cfg    = base_config
+        self.base_output = Path(output_dir)
+        self.base_output.mkdir(parents=True, exist_ok=True)
+        self.run_ts      = run_timestamp or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.run_dir     = self.base_output / self.run_ts
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        self.max_workers = max_workers or max(1, (os.cpu_count() or 4) - 1)
+        print(f"  [결과 폴더] {self.run_dir}")
+        print(f"  [병렬 워커] {self.max_workers}개")
 
-    # ── Single run ────────────────────────────────────────────────────────────
+        # cfg를 임시 YAML로 저장 (자식 프로세스에서 로드)
+        self._cfg_tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+        )
+        base_config.to_yaml(self._cfg_tmp.name)
+        self._cfg_tmp.close()
+        self._cfg_yaml = self._cfg_tmp.name
 
+    def __del__(self):
+        try:
+            if hasattr(self, "_cfg_yaml") and Path(self._cfg_yaml).exists():
+                os.unlink(self._cfg_yaml)
+        except Exception:
+            pass
+
+    # ── 단일 실행 (직접) ──────────────────────────────────────────────────────
     def run_single(
         self,
         protocol_name: str,
         seed: int,
         rep_id: int = 0,
-        save_topology_fig: bool = True,
-    ) -> ExperimentResult:
+        run_until_dead: bool = False,
+        save_topo_changes: bool = False,
+        topo_save_interval: int = 100,
+        save_initial_topo: bool = True,
+    ):
+        from wsn_framework.core.config import ScenarioConfig
+        from wsn_framework.core.topology import TopologyManager
+        from wsn_framework.core.energy import EnergyModel
+        from wsn_framework.protocols import get_protocol
+
         cfg = self.base_cfg.clone_for_protocol(protocol_name)
         cfg.simulation.seed = seed
-
         topo = TopologyManager(cfg.topology, cfg.energy, seed=seed)
         topo.deploy()
+        proto_out = _proto_dir(self.run_dir, protocol_name)
 
-        if save_topology_fig and rep_id == 0:
-            fig_path = (
-                self.output_dir / "figures" /
-                f"topology_{protocol_name}_seed{seed}.png"
+        if save_initial_topo and rep_id == 0:
+            topo.visualize(
+                proto_out / f"topology_initial_seed{seed}.png",
+                title=f"Initial Topology — {protocol_name}"
             )
-            topo.visualize(fig_path, title=f"Initial topology — {protocol_name}")
 
+        topo_dir = (proto_out / "topology_frames") if (save_topo_changes and rep_id == 0) else None
         em    = EnergyModel(cfg.energy)
-        PCls  = get_protocol(protocol_name)
-        proto = PCls(cfg.protocol, em, cfg.comm)
+        proto = get_protocol(protocol_name)(cfg.protocol, em, cfg.comm)
+        return proto.run(
+            topo, cfg.simulation.rounds, seed, rep_id,
+            run_until_dead=run_until_dead,
+            topo_save_dir=topo_dir,
+            topo_save_interval=topo_save_interval,
+        )
 
-        result = proto.run(topo, cfg.simulation.rounds, seed, rep_id)
-        return result
-
-    # ── Monte Carlo ───────────────────────────────────────────────────────────
-
+    # ── Monte Carlo (병렬) ────────────────────────────────────────────────────
     def run_monte_carlo(
         self,
         protocol_name: str,
-        repetitions:   Optional[int] = None,
-        save_topology_fig: bool = True,
-    ) -> AggregatedResult:
+        repetitions: Optional[int] = None,
+        run_until_dead: bool = False,
+        save_topo_changes: bool = False,
+        topo_save_interval: int = 100,
+    ):
         reps      = repetitions or self.base_cfg.simulation.repetitions
         base_seed = self.base_cfg.simulation.seed
-        results: List[ExperimentResult] = []
+        proto_out = _proto_dir(self.run_dir, protocol_name)
+        frames_path = str(proto_out / "topology_frames") if save_topo_changes else None
+        init_path   = str(proto_out / f"topology_initial_seed{base_seed}.png")
 
-        log.info(f"[{protocol_name}] Monte Carlo ×{reps}")
-        for rep in range(reps):
-            _progress(protocol_name, rep, reps)
-            seed = base_seed + rep
-            r = self.run_single(
-                protocol_name, seed, rep_id=rep,
-                save_topology_fig=(save_topology_fig and rep == 0)
+        args_list = [
+            (
+                self._cfg_yaml, protocol_name, base_seed + rep, rep,
+                run_until_dead,
+                frames_path if rep == 0 else None,
+                topo_save_interval,
+                rep == 0,
+                init_path if rep == 0 else None,
             )
-            results.append(r)
-        _progress(protocol_name, reps, reps)
+            for rep in range(reps)
+        ]
 
-        return self._aggregate(protocol_name, results)
+        results = [None] * reps
+        done = 0
+        n_workers = min(self.max_workers, reps)
 
-    # ── Multi-protocol comparison ─────────────────────────────────────────────
+        if n_workers > 1:
+            with ProcessPoolExecutor(max_workers=n_workers) as ex:
+                futures = {ex.submit(_worker, a): i
+                           for i, a in enumerate(args_list)}
+                for fut in as_completed(futures):
+                    idx = futures[fut]
+                    try:
+                        results[idx] = fut.result()
+                    except Exception as e:
+                        log.error(f"[{protocol_name}] rep {idx} 실패: {e}")
+                        raise
+                    done += 1
+                    _bar(protocol_name, done, reps)
+        else:
+            for i, a in enumerate(args_list):
+                results[i] = _worker(a)
+                done += 1
+                _bar(protocol_name, done, reps)
 
-    def compare(
-        self,
-        protocols:         List[str],
-        repetitions:       Optional[int] = None,
-        save_topology_fig: bool = True,
-    ) -> Dict[str, AggregatedResult]:
-        comparison: Dict[str, AggregatedResult] = {}
-        for proto in protocols:
-            agg = self.run_monte_carlo(
-                proto, repetitions, save_topology_fig=save_topology_fig
-            )
-            comparison[proto] = agg
-            log.info(
-                f"  {proto:10s}  FND={agg.fnd_mean:.0f}±{agg.fnd_std:.0f}  "
-                f"HND={agg.hnd_mean:.0f}±{agg.hnd_std:.0f}  "
-                f"PDR={agg.pdr_mean:.3f}"
-            )
-        self._save_comparison_topology(protocols, save_topology_fig)
-        return comparison
-
-    # ── Aggregation ───────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _aggregate(name: str, results: List[ExperimentResult]) -> AggregatedResult:
-        def m(attr): return float(np.mean([getattr(r, attr) for r in results]))
-        def s(attr): return float(np.std([getattr(r, attr)  for r in results]))
-        agg = AggregatedResult(protocol=name, repetitions=len(results), raw=results)
-        for attr in ("fnd", "hnd", "lnd"):
-            setattr(agg, f"{attr}_mean", m(attr))
-            setattr(agg, f"{attr}_std",  s(attr))
-        agg.pdr_mean         = m("pdr");                agg.pdr_std   = s("pdr")
-        agg.e_bal_mean       = m("energy_balance_var"); agg.e_bal_std = s("energy_balance_var")
-        agg.e_consumed_mean  = m("total_energy_consumed")
-        agg.avg_ch_mean      = m("avg_ch_count")
+        agg = self._aggregate(protocol_name, results)
+        self._save_proto_summary(protocol_name, agg)
         return agg
 
-    # ── Shared topology overlay ───────────────────────────────────────────────
+    # ── 다중 프로토콜 비교 ────────────────────────────────────────────────────
+    def compare(
+        self,
+        protocols: List[str],
+        repetitions: Optional[int] = None,
+        run_until_dead: bool = False,
+        save_topo_changes: bool = False,
+        topo_save_interval: int = 100,
+    ) -> Dict[str, any]:
+        comparison = {}
+        for proto in protocols:
+            agg = self.run_monte_carlo(
+                proto, repetitions,
+                run_until_dead=run_until_dead,
+                save_topo_changes=save_topo_changes,
+                topo_save_interval=topo_save_interval,
+            )
+            comparison[proto] = agg
+        self._save_comparison_summary(comparison)
+        return comparison
 
-    def _save_comparison_topology(self, protocols: List[str], save: bool) -> None:
-        if not save:
-            return
-        seed = self.base_cfg.simulation.seed
-        cfg  = self.base_cfg
-        topo = TopologyManager(cfg.topology, cfg.energy, seed=seed)
-        topo.deploy()
-        fig_path = self.output_dir / "figures" / f"topology_shared_seed{seed}.png"
-        topo.visualize(
-            fig_path,
-            title=f"Shared topology (seed={seed})  |  {', '.join(protocols)}",
-        )
-        log.info(f"Shared topology → {fig_path}")
+    # ── 집계 ─────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _aggregate(proto: str, results: list):
+        from wsn_framework.core.result import AggregatedResult
+        if not results:
+            return AggregatedResult(protocol=proto, repetitions=0)
+        def _s(vals):
+            a = np.array(vals, float)
+            return float(np.mean(a)), float(np.std(a))
+        agg = AggregatedResult(protocol=proto, repetitions=len(results))
+        agg.fnd_mean, agg.fnd_std     = _s([r.fnd for r in results])
+        agg.hnd_mean, agg.hnd_std     = _s([r.hnd for r in results])
+        agg.lnd_mean, agg.lnd_std     = _s([r.lnd for r in results])
+        agg.pdr_mean, agg.pdr_std     = _s([r.pdr for r in results])
+        agg.e_bal_mean, agg.e_bal_std = _s([r.energy_balance_var for r in results])
+        agg.e_consumed_mean, _        = _s([r.total_energy_consumed for r in results])
+        agg.avg_ch_mean, _            = _s([r.avg_ch_count for r in results])
+        agg.raw = results
+        return agg
+
+    # ── 요약 저장 ─────────────────────────────────────────────────────────────
+    def _save_proto_summary(self, proto: str, agg) -> None:
+        fp = _proto_dir(self.run_dir, proto) / "summary.txt"
+        lines = [
+            f"Protocol   : {proto}",
+            f"Repetitions: {agg.repetitions}",
+            f"FND        : {agg.fnd_mean:.1f} ± {agg.fnd_std:.1f}",
+            f"HND        : {agg.hnd_mean:.1f} ± {agg.hnd_std:.1f}",
+            f"LND        : {agg.lnd_mean:.1f} ± {agg.lnd_std:.1f}",
+            f"PDR        : {agg.pdr_mean:.4f} ± {agg.pdr_std:.4f}",
+            f"E-Consumed : {agg.e_consumed_mean:.4f} J",
+            f"E-Balance  : {agg.e_bal_mean:.6f}",
+            f"Avg CH/rnd : {agg.avg_ch_mean:.2f}",
+        ]
+        fp.write_text("\n".join(lines) + "\n")
+
+    def _save_comparison_summary(self, comparison: dict) -> None:
+        fp = self.run_dir / "comparison_summary.csv"
+        fields = ["Protocol", "FND_mean", "FND_std",
+                  "HND_mean", "HND_std", "LND_mean", "LND_std",
+                  "PDR_mean", "E_consumed_J", "E_balance"]
+        with open(fp, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            for proto, agg in comparison.items():
+                w.writerow({
+                    "Protocol":     proto,
+                    "FND_mean":     f"{agg.fnd_mean:.1f}",
+                    "FND_std":      f"{agg.fnd_std:.1f}",
+                    "HND_mean":     f"{agg.hnd_mean:.1f}",
+                    "HND_std":      f"{agg.hnd_std:.1f}",
+                    "LND_mean":     f"{agg.lnd_mean:.1f}",
+                    "LND_std":      f"{agg.lnd_std:.1f}",
+                    "PDR_mean":     f"{agg.pdr_mean:.4f}",
+                    "E_consumed_J": f"{agg.e_consumed_mean:.4f}",
+                    "E_balance":    f"{agg.e_bal_mean:.6f}",
+                })
+        print(f"  [비교 요약] {fp}")
+
+    # ── 파라미터 스윕 ─────────────────────────────────────────────────────────
+    def sweep(self, protocols, param, values, repetitions=None, run_until_dead=False):
+        results = {}
+        for val in values:
+            cfg_copy = copy.deepcopy(self.base_cfg)
+            parts = param.split(".")
+            obj = cfg_copy
+            for p in parts[:-1]:
+                obj = getattr(obj, p)
+            setattr(obj, parts[-1], val)
+            ts  = f"{self.run_ts}_{param.split('.')[-1]}_{val}"
+            sub = ExperimentManager(cfg_copy, str(self.base_output), ts, self.max_workers)
+            results[str(val)] = sub.compare(protocols, repetitions, run_until_dead=run_until_dead)
+        return results
