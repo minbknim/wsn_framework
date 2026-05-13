@@ -10,7 +10,12 @@ from .apteen   import APTEEN
 from .sep      import SEP
 from .deec     import DEEC
 from .ee_leach import EE_LEACH
-from .mcp      import MCP, MCP_PLUS
+from .mcp          import MCP, MCP_PLUS
+from .amcp_e       import AMCP_E
+from .spin         import SPIN
+from .rumor_routing import RumorRouting
+from .gear         import GEAR
+from .gaf          import GAF
 
 REGISTRY: dict = {
     "LEACH":    LEACH,
@@ -24,6 +29,12 @@ REGISTRY: dict = {
     "EE-LEACH": EE_LEACH,
     "MCP":      MCP,
     "MCP+":     MCP_PLUS,
+    "AMCP-E":   AMCP_E,
+    # 신규 추가 (MCP 논문 참조 프로토콜)
+    "SPIN":     SPIN,
+    "RUMOR":    RumorRouting,
+    "GEAR":     GEAR,
+    "GAF":      GAF,
 }
 
 def get_protocol(name: str) -> type:

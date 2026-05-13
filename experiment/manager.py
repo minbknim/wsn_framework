@@ -67,7 +67,7 @@ def _worker(args: tuple):
     return proto.run(
         topo, cfg.simulation.rounds, seed, rep_id,
         run_until_dead=run_until_dead,
-        topo_save_dir=topo_dir,
+        save_dir=topo_dir,
         topo_save_interval=topo_save_interval,
     )
 
@@ -140,7 +140,7 @@ class ExperimentManager:
         return proto.run(
             topo, cfg.simulation.rounds, seed, rep_id,
             run_until_dead=run_until_dead,
-            topo_save_dir=topo_dir,
+            save_dir=topo_dir,
             topo_save_interval=topo_save_interval,
         )
 
