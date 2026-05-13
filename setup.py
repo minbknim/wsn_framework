@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="wsn_framework",
-    version="1.0.0",
+    version="0.72",
     description="WSN Simulation Framework — NS3 + Python unified test environment",
     packages=find_packages(exclude=["tests*", "docker*"]),
     python_requires=">=3.9",
