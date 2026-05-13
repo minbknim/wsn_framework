@@ -57,7 +57,7 @@ class AMCP_E(BaseProtocol):
     default_params = {
         "ch_ratio":  0.05,
         "gamma":     1.5,
-        "reset_k":   20,
+        "reset_k": 150,
         "diff":      True,
     }
 
@@ -182,6 +182,6 @@ class AMCP_E(BaseProtocol):
 AMCP_E.default_params = {
     "ch_ratio":  0.05,
     "gamma":     0.0,    # 실험으로 확인: 0이 최적 (균등 분산)
-    "reset_k":   100,    # 실험으로 확인: 100이 PDR-LND 균형 최적
+    "reset_k": 150,    # 실험으로 확인: 100이 PDR-LND 균형 최적
     "diff":      True,
 }

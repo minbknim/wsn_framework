@@ -17,7 +17,7 @@ class SEP(BaseProtocol):
     default_params = {
         "ch_ratio": 0.05,
         "m_frac":   0.1,   # 고에너지 노드 비율
-        "alpha":    1.0,   # 고에너지 노드 배수 (→ 2×E₀)
+        "alpha":    0.5,  # 최적화: σ 최소화   # 고에너지 노드 배수 (→ 2×E₀)
     }
 
     def __init__(self, *args, **kwargs):

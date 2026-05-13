@@ -12,6 +12,7 @@ from .deec     import DEEC
 from .ee_leach import EE_LEACH
 from .mcp          import MCP, MCP_PLUS
 from .amcp_e       import AMCP_E
+from .amcp_e_rl    import AMCP_E_RL
 from .spin         import SPIN
 from .rumor_routing import RumorRouting
 from .gear         import GEAR
@@ -30,6 +31,7 @@ REGISTRY: dict = {
     "MCP":      MCP,
     "MCP+":     MCP_PLUS,
     "AMCP-E":   AMCP_E,
+    "AMCP-E-RL": AMCP_E_RL,
     # 신규 추가 (MCP 논문 참조 프로토콜)
     "SPIN":     SPIN,
     "RUMOR":    RumorRouting,
