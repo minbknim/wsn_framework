@@ -19,6 +19,7 @@ class SensorNode:
     x:              float
     y:              float
     initial_energy: float
+    z:              float     = 0.0
     energy:         float     = field(init=False)
     alive:          bool      = field(init=False, default=True)
 
@@ -26,7 +27,7 @@ class SensorNode:
         self.energy = self.initial_energy
 
     def distance_to(self, other: "SensorNode") -> float:
-        return math.hypot(self.x - other.x, self.y - other.y)
+        return math.sqrt((self.x-other.x)**2+(self.y-other.y)**2+(self.z-other.z)**2)
 
     def distance_to_point(self, px: float, py: float) -> float:
         return math.hypot(self.x - px, self.y - py)
@@ -34,8 +35,16 @@ class SensorNode:
 
 @dataclass
 class BaseStation:
-    x: float
-    y: float
+    x:          float
+    y:          float
+    z:          float = 0.0
+    trajectory: object = None
+
+    def move_to(self, round_num: int) -> None:
+        if self.trajectory and round_num < len(self.trajectory):
+            pos = self.trajectory[round_num]
+            self.x = pos[0]; self.y = pos[1]
+            if len(pos) > 2: self.z = pos[2]
 
 
 class MobilityModel:

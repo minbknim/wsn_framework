@@ -40,7 +40,10 @@ class AMCP_E(BaseProtocol):
         "gamma":       0.0,    # v2 개선: 0이 최적 (균등 분산)
         "reset_k":   500,      # v2 개선: 500이 최적
         "diff":        True,
-        "e_min_ratio": 0.05,   # v2 신규: 에너지 5% 미만 CH 불가
+        "e_min_ratio":    0.05,
+        "delta_threshold":0.0,   # 변화율 임계값 (0=기존, 0.1=10% 급변시 원본)
+        "w_dist":         0.5,   # 적응형 가중치 — 거리
+        "w_energy":       0.5,   # 적응형 가중치 — 에너지
     }
 
     def __init__(self, *args, **kwargs):
@@ -124,9 +127,16 @@ class AMCP_E(BaseProtocol):
             # v2: 리셋 라운드에 last_sent 초기화
             self._last_sent.clear()
 
-        # 패킷 크기 결정
-        pkt = self.comm.packet_size if (is_reset or not diff) \
-              else self.comm.packet_size // 2
+        theta = self.params.get("delta_threshold", 0.0)
+        if not diff or is_reset:
+            pkt = self.comm.packet_size
+        elif theta > 0:
+            avg_e = sum(nd.energy for nd in alive_nodes) / max(len(alive_nodes),1)
+            prev_e = getattr(self, "_prev_avg_e", avg_e)
+            self._prev_avg_e = avg_e
+            pkt = self.comm.packet_size if abs(avg_e-prev_e)/max(prev_e,1e-9) > theta                   else self.comm.packet_size // 2
+        else:
+            pkt = self.comm.packet_size // 2
 
         node_map = {n.node_id: n for n in alive_nodes}
         ch_members: Dict[int, List[SensorNode]] = {c: [] for c in ch_ids}

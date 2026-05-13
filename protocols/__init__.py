@@ -50,3 +50,6 @@ def register(proto_class: type) -> None:
 
 def list_protocols() -> list:
     return sorted(REGISTRY.keys())
+
+from .amcp_e_h2 import AMCP_E_H2
+REGISTRY['AMCP-E-H2'] = AMCP_E_H2

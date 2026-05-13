@@ -123,6 +123,15 @@ class BaseProtocol:
                 self._consume(node, idle_cost)
 
     # ── 추상 메서드 ───────────────────────────────────────────────────────────
+    def _get_tdma_order(self, alive_nodes, ch_ids):
+        if not self.params.get("model_tdma", False):
+            return [n.node_id for n in alive_nodes]
+        ch_set = set(ch_ids)
+        chs = [n for n in alive_nodes if n.node_id in ch_set]
+        members = sorted([n for n in alive_nodes if n.node_id not in ch_set],
+                         key=lambda n: -n.energy)
+        return [n.node_id for n in chs + members]
+
     @abstractmethod
     def select_cluster_heads(self, alive_nodes, round_num, bs): ...
 
@@ -143,6 +152,8 @@ class BaseProtocol:
         n_half = len(nodes) // 2
 
         for rnd in range(1, max_rounds + 1):
+            if hasattr(bs, 'move_to'):
+                bs.move_to(rnd)
             alive = [n for n in nodes if n.alive]
             if not alive:
                 break
@@ -154,6 +165,10 @@ class BaseProtocol:
                 result.hnd = rnd
             result.lnd = rnd
 
+            harvest = self.em.harvest_energy(rnd)
+            if harvest > 0:
+                for node in alive:
+                    node.energy = min(node.initial_energy, node.energy + harvest)
             ch_ids, cluster_map = self.select_cluster_heads(alive, rnd, bs)
 
             # ④ 슬립 에너지 반영 (model_idle=True 시)
