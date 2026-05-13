@@ -53,3 +53,6 @@ def list_protocols() -> list:
 
 from .amcp_e_h2 import AMCP_E_H2
 REGISTRY['AMCP-E-H2'] = AMCP_E_H2
+
+from .dmcp import DMCP
+REGISTRY['DMCP'] = DMCP
